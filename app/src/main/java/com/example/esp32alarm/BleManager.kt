@@ -1,7 +1,8 @@
 package com.example.esp32alarm
 
-import android.content.Context
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.le.ScanResult
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.welie.blessed.BluetoothCentralManager
@@ -10,18 +11,51 @@ import com.welie.blessed.BluetoothPeripheral
 import com.welie.blessed.BluetoothPeripheralCallback
 import com.welie.blessed.GattStatus
 import com.welie.blessed.WriteType
+import java.util.UUID
 
 class BleManager(private val context: Context) {
 
+    // UUID Service & Characteristic ESP32 (Sesuaikan jika Anda menggunakan UUID custom di ESP32)
+    val SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805F9B34FB")
+    val CHARACTERISTIC_UUID: UUID = UUID.fromString("00002A37-0000-1000-8000-00805F9B34FB")
+
+    // Peripheral yang sedang terhubung
+    var connectedPeripheral: BluetoothPeripheral? = null
+        private set
+
+    // Callback Listener yang dipasangkan oleh MainActivity
+    var onDeviceDiscovered: ((peripheral: BluetoothPeripheral, scanResult: ScanResult) -> Unit)? = null
+    var onConnectionStateChanged: ((peripheral: BluetoothPeripheral, isConnected: Boolean) -> Unit)? = null
+    var onMessageReceived: ((message: String) -> Unit)? = null
+    var onRssiUpdate: ((rssi: Int) -> Unit)? = null
+    var onAlarmStateChanged: ((isAlarmOn: Boolean) -> Unit)? = null
+
+    // Manager Callback dari Blessed Library
     private val centralCallback = object : BluetoothCentralManagerCallback() {
-        override fun onDiscoveredPeripheral(peripheral: BluetoothPeripheral, scanResult: android.bluetooth.le.ScanResult) {
-            central.connectPeripheral(peripheral, peripheralCallback)
+        override fun onDiscoveredPeripheral(peripheral: BluetoothPeripheral, scanResult: ScanResult) {
+            onDeviceDiscovered?.invoke(peripheral, scanResult)
+        }
+
+        override fun onConnectedPeripheral(peripheral: BluetoothPeripheral) {
+            connectedPeripheral = peripheral
+            onConnectionStateChanged?.invoke(peripheral, true)
+        }
+
+        override fun onDisconnectedPeripheral(peripheral: BluetoothPeripheral, status: GattStatus) {
+            if (connectedPeripheral == peripheral) {
+                connectedPeripheral = null
+            }
+            onConnectionStateChanged?.invoke(peripheral, false)
         }
     }
 
+    // Peripheral Callback
     private val peripheralCallback = object : BluetoothPeripheralCallback() {
         override fun onServicesDiscovered(peripheral: BluetoothPeripheral) {
-            // Service discovery dilakukan otomatis oleh Blessed
+            val characteristic = peripheral.getCharacteristic(SERVICE_UUID, CHARACTERISTIC_UUID)
+            if (characteristic != null) {
+                peripheral.setNotify(characteristic, true)
+            }
         }
 
         override fun onCharacteristicUpdate(
@@ -30,7 +64,16 @@ class BleManager(private val context: Context) {
             characteristic: BluetoothGattCharacteristic,
             status: GattStatus
         ) {
-            // Proses data karakteristik yang diterima
+            if (status == GattStatus.SUCCESS) {
+                val message = String(value, Charsets.UTF_8)
+                onMessageReceived?.invoke(message)
+
+                if (message.contains("ALARM_ON", ignoreCase = true)) {
+                    onAlarmStateChanged?.invoke(true)
+                } else if (message.contains("ALARM_OFF", ignoreCase = true)) {
+                    onAlarmStateChanged?.invoke(false)
+                }
+            }
         }
 
         override fun onReadRemoteRssi(
@@ -38,7 +81,9 @@ class BleManager(private val context: Context) {
             rssi: Int,
             status: GattStatus
         ) {
-            // Proses pembacaan RSSI
+            if (status == GattStatus.SUCCESS) {
+                onRssiUpdate?.invoke(rssi)
+            }
         }
     }
 
@@ -48,15 +93,55 @@ class BleManager(private val context: Context) {
         Handler(Looper.getMainLooper())
     )
 
-    fun startScanning() {
+    // Method publik yang dipanggil MainActivity
+
+    fun startScan() {
         central.scanForPeripherals()
     }
 
-    fun writeData(peripheral: BluetoothPeripheral, characteristic: BluetoothGattCharacteristic, data: ByteArray) {
-        peripheral.writeCharacteristic(characteristic, data, WriteType.WITH_RESPONSE)
+    fun stopScan() {
+        central.stopScan()
     }
 
-    fun readRssi(peripheral: BluetoothPeripheral) {
-        peripheral.readRemoteRssi()
+    fun connect(peripheral: BluetoothPeripheral) {
+        central.connectPeripheral(peripheral, peripheralCallback)
+    }
+
+    fun connect(address: String) {
+        val peripheral = central.getPeripheral(address)
+        connect(peripheral)
+    }
+
+    fun disconnect() {
+        connectedPeripheral?.let {
+            central.cancelConnection(it)
+        }
+    }
+
+    fun sendMessage(message: String) {
+        connectedPeripheral?.let { peripheral ->
+            val characteristic = peripheral.getCharacteristic(SERVICE_UUID, CHARACTERISTIC_UUID)
+            if (characteristic != null) {
+                peripheral.writeCharacteristic(
+                    characteristic,
+                    message.toByteArray(Charsets.UTF_8),
+                    WriteType.WITH_RESPONSE
+                )
+            }
+        }
+    }
+
+    fun stopAlarm() {
+        sendMessage("STOP_ALARM")
+    }
+
+    fun readRssi(peripheral: BluetoothPeripheral? = connectedPeripheral) {
+        val target = peripheral ?: connectedPeripheral
+        target?.readRemoteRssi()
+    }
+
+    fun cleanup() {
+        stopScan()
+        disconnect()
     }
 }
