@@ -44,6 +44,9 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     
-    // Library Bluetooth LE Blessed Android
+    // Library BLE Blessed Android
     implementation("com.github.weliem:blessed-android:2.5.0")
+    
+    // Library Google Gson (UNTUK PREFERENCES HELPER)
+    implementation("com.google.code.gson:gson:2.10.1")
 }
