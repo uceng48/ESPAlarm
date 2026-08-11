@@ -1,147 +1,94 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
-
-    <TextView
-        android:id="@+id/tvStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="ðŸ”´ Tidak terhubung"
-        android:textSize="24sp"
-        android:gravity="center"
-        android:padding="8dp"/>
+    android:layout_height="match_parent">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Status: Terputus"
+            android:textSize="16sp" />
+
+        <TextView
+            android:id="@+id/tvMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Pesan: -"
+            android:textSize="14sp" />
+
         <TextView
             android:id="@+id/tvRssi"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="RSSI: -- dBm"/>
-        <TextView
-            android:id="@+id/tvAlarmState"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="ðŸ”• Alarm nonaktif"
-            android:textAlignment="textEnd"/>
-    </LinearLayout>
+            android:layout_marginTop="8dp"
+            android:text="RSSI: -"
+            android:textSize="14sp" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="8dp">
+        <TextView
+            android:id="@+id/tvAlarmStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Status Alarm: -"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
         <Button
             android:id="@+id/btnScan"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Scan"/>
+            android:layout_marginTop="16dp"
+            android:text="Start Scan" />
+
+        <Button
+            android:id="@+id/btnStopScan"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Stop Scan" />
+
         <Button
             android:id="@+id/btnConnect"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Hubung"
-            android:enabled="false"/>
-        <Button
-            android:id="@+id/btnDisconnect"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Putus"
-            android:enabled="false"/>
-    </LinearLayout>
+            android:layout_marginTop="8dp"
+            android:text="Connect" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="8dp">
         <Button
-            android:id="@+id/btnAlarmOn"
-            android:layout_width="0dp"
+            android:id="@+id/btnStopAlarm"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="ðŸ”” Alarm Nyala"
-            android:enabled="false"/>
-        <Button
-            android:id="@+id/btnAlarmOff"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="ðŸ”• Alarm Mati"
-            android:enabled="false"/>
+            android:layout_marginTop="8dp"
+            android:text="Stop Alarm" />
+
         <Button
             android:id="@+id/btnReadRssi"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="ðŸ“¶ RSSI"
-            android:enabled="false"/>
-    </LinearLayout>
+            android:layout_marginTop="8dp"
+            android:text="Read RSSI" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="8dp">
         <EditText
-            android:id="@+id/etCommand"
-            android:layout_width="0dp"
+            android:id="@+id/etMessage"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="Ketik perintah"
-            android:enabled="false"/>
+            android:layout_marginTop="16dp"
+            android:hint="Ketik pesan di sini" />
+
         <Button
-            android:id="@+id/btnSend"
-            android:layout_width="wrap_content"
+            android:id="@+id/btnSendCustom"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Kirim"
-            android:enabled="false"/>
-        <Button
-            android:id="@+id/btnSettings"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="âš™ï¸"/>
+            android:layout_marginTop="8dp"
+            android:text="Kirim Pesan" />
+
     </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Daftar Perangkat"
-        android:textStyle="bold"
-        android:layout_marginTop="8dp"/>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="150dp"
-        android:background="#f0f0f0"
-        android:layout_marginTop="4dp"/>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Log Pesan"
-        android:textStyle="bold"
-        android:layout_marginTop="8dp"/>
-
-    <TextView
-        android:id="@+id/tvLog"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#e0e0e0"
-        android:padding="8dp"
-        android:scrollbars="vertical"
-        android:text="ðŸ“‹ Log:\n"
-        android:layout_marginTop="4dp"/>
-</LinearLayout>
+</ScrollView>
