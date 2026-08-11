@@ -1,19 +1,28 @@
 package com.example.esp32alarm
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothGattService
+import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
-import android.os.HandlerThread
 import android.os.Looper
 import android.os.ParcelUuid
 import android.os.VibrationEffect
 import android.os.Vibrator
-import com.welie.blessed.*
 import java.util.UUID
 
 class BleManager(
@@ -28,8 +37,17 @@ class BleManager(
         private const val HEARTBEAT_TIMEOUT = 10000L
     }
 
-    private lateinit var centralManager: BluetoothCentralManager
-    private var peripheral: BluetoothPeripheral? = null
+    private val bluetoothManager: BluetoothManager by lazy {
+        context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    }
+    private val bluetoothAdapter: BluetoothAdapter by lazy {
+        bluetoothManager.adapter
+    }
+    private val bluetoothLeScanner: BluetoothLeScanner? by lazy {
+        bluetoothAdapter.bluetoothLeScanner
+    }
+
+    private var gatt: BluetoothGatt? = null
     private var isConnected = false
     private var alarmActive = false
     private var mediaPlayer: MediaPlayer? = null
@@ -40,65 +58,72 @@ class BleManager(
 
     var onMessageReceived: ((String) -> Unit)? = null
     var onConnectionStateChanged: ((Boolean, String?) -> Unit)? = null
-    var onDeviceDiscovered: ((BluetoothPeripheral, Int) -> Unit)? = null
+    var onDeviceDiscovered: ((BluetoothDevice, Int) -> Unit)? = null
     var onRssiUpdate: ((Int) -> Unit)? = null
     var onAlarmStateChanged: ((Boolean) -> Unit)? = null
 
-    // ─── Callback ───
-    private val centralManagerCallback = object : BluetoothCentralManagerCallback() {
-        override fun onDiscoveredPeripheral(peripheral: BluetoothPeripheral, scanResult: ScanResult) {
-            val name = peripheral.name
+    private val scanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val device = result.device
+            val name = device.name
             if (name?.contains("ESP32C3") == true) {
-                onDeviceDiscovered?.invoke(peripheral, scanResult.rssi)
+                onDeviceDiscovered?.invoke(device, result.rssi)
                 val lastMac = preferences.getLastMac()
-                if (lastMac != null && peripheral.address == lastMac && !isConnected) {
+                if (lastMac != null && device.address == lastMac && !isConnected) {
                     LogHelper.log("Auto-connecting to $name")
-                    connect(peripheral)
+                    connect(device)
                 }
             }
         }
 
-        override fun onConnectedPeripheral(peripheral: BluetoothPeripheral) {
-            isConnected = true
-            alarmActive = false
-            stopAlarm()
-            preferences.setLastMac(peripheral.address)
-            reconnectAttempts = 0
-            heartbeatHandler.removeCallbacks(heartbeatTimeoutRunnable)
-            onConnectionStateChanged?.invoke(true, peripheral.address)
-            peripheral.discoverServices()
-            LogHelper.log("Connected to ${peripheral.name}")
+        override fun onScanFailed(errorCode: Int) {
+            LogHelper.log("Scan failed: $errorCode")
         }
+    }
 
-        override fun onConnectionFailed(peripheral: BluetoothPeripheral, status: HciStatus) {
-            isConnected = false
-            onConnectionStateChanged?.invoke(false, peripheral.address)
-            LogHelper.log("Connection failed: $status")
-            handleDisconnect(peripheral)
-        }
-
-        override fun onDisconnectedPeripheral(peripheral: BluetoothPeripheral, status: HciStatus) {
-            isConnected = false
-            onConnectionStateChanged?.invoke(false, peripheral.address)
-            LogHelper.log("Disconnected: ${peripheral.name}")
-            handleDisconnect(peripheral)
-        }
-
-        override fun onServicesDiscovered(peripheral: BluetoothPeripheral) {
-            val service = peripheral.getService(SERVICE_UUID)
-            service?.let {
-                peripheral.setNotify(it.getCharacteristic(CHARACTERISTIC_UUID_TX), true)
-                LogHelper.log("Services discovered, notifications enabled")
+    private val gattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            if (newState == BluetoothProfile.STATE_CONNECTED) {
+                isConnected = true
+                alarmActive = false
+                stopAlarm()
+                preferences.setLastMac(gatt.device.address)
+                reconnectAttempts = 0
+                heartbeatHandler.removeCallbacks(heartbeatTimeoutRunnable)
+                onConnectionStateChanged?.invoke(true, gatt.device.address)
+                gatt.discoverServices()
+                LogHelper.log("Connected to ${gatt.device.name}")
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                isConnected = false
+                onConnectionStateChanged?.invoke(false, gatt.device.address)
+                LogHelper.log("Disconnected: ${gatt.device.name}")
+                handleDisconnect(gatt.device)
             }
         }
 
-        override fun onCharacteristicUpdate(
-            peripheral: BluetoothPeripheral,
-            value: ByteArray,
-            characteristic: BluetoothCharacteristic,
-            status: GattStatus
+        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                val service = gatt.getService(SERVICE_UUID)
+                service?.let {
+                    val characteristic = it.getCharacteristic(CHARACTERISTIC_UUID_TX)
+                    characteristic?.let { char ->
+                        gatt.setCharacteristicNotification(char, true)
+                        val descriptor = char.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+                        descriptor?.let {
+                            it.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            gatt.writeDescriptor(it)
+                        }
+                        LogHelper.log("Services discovered, notifications enabled")
+                    }
+                }
+            }
+        }
+
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic
         ) {
-            val message = String(value)
+            val message = String(characteristic.value)
             LogHelper.log("Received: $message")
             when {
                 message == "HEARTBEAT" -> {
@@ -113,25 +138,26 @@ class BleManager(
             }
         }
 
-        override fun onRssiRead(peripheral: BluetoothPeripheral, rssi: Int, status: GattStatus) {
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            LogHelper.log("Characteristic write status: $status")
+        }
+
+        override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
             onRssiUpdate?.invoke(rssi)
         }
-    }
-
-    init {
-        val handlerThread = HandlerThread("BLE")
-        handlerThread.start()
-        centralManager = BluetoothCentralManager(context, centralManagerCallback, handlerThread)
-        LogHelper.log("BleManager initialized")
     }
 
     private val heartbeatTimeoutRunnable = Runnable {
         LogHelper.log("Heartbeat timeout, disconnecting")
         disconnect()
-        handleDisconnect(peripheral)
+        handleDisconnect(gatt?.device)
     }
 
-    private fun handleDisconnect(peripheral: BluetoothPeripheral?) {
+    private fun handleDisconnect(device: BluetoothDevice?) {
         if (alarmActive) return
         alarmActive = true
         startAlarm()
@@ -144,50 +170,54 @@ class BleManager(
 
     // ─── Public methods ───
     fun startScan() {
-        val scanFilter = ScanFilter.Builder()
-            .setServiceUuid(ParcelUuid(SERVICE_UUID))
-            .build()
-        centralManager.startScan(listOf(scanFilter), null)
-        LogHelper.log("Scan started with filter")
+        bluetoothLeScanner?.let { scanner ->
+            val scanFilter = ScanFilter.Builder()
+                .setServiceUuid(ParcelUuid(SERVICE_UUID))
+                .build()
+            val settings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build()
+            scanner.startScan(listOf(scanFilter), settings, scanCallback)
+            LogHelper.log("Scan started with filter")
+        }
     }
 
     fun stopScan() {
-        centralManager.stopScan()
+        bluetoothLeScanner?.stopScan(scanCallback)
     }
 
-    fun connect(peripheral: BluetoothPeripheral) {
-        this.peripheral = peripheral
-        centralManager.connectPeripheral(peripheral)
+    fun connect(device: BluetoothDevice) {
+        gatt = device.connectGatt(context, false, gattCallback)
     }
 
     fun disconnect() {
-        peripheral?.let { centralManager.cancelConnection(it) }
+        gatt?.disconnect()
+        gatt?.close()
+        gatt = null
         isConnected = false
         stopAlarm()
         heartbeatHandler.removeCallbacks(heartbeatTimeoutRunnable)
     }
 
     fun sendMessage(message: String) {
-        if (isConnected && peripheral != null) {
-            val service = peripheral?.getService(SERVICE_UUID)
+        gatt?.let { gattInstance ->
+            val service = gattInstance.getService(SERVICE_UUID)
             val characteristic = service?.getCharacteristic(CHARACTERISTIC_UUID_RX)
             characteristic?.let {
-                peripheral?.writeCharacteristic(
-                    it,
-                    message.toByteArray(),
-                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                )
+                it.value = message.toByteArray()
+                it.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                gattInstance.writeCharacteristic(it)
                 LogHelper.log("Sent: $message")
             }
         }
     }
 
     fun readRssi() {
-        peripheral?.readRssi()
+        gatt?.readRemoteRssi()
     }
 
     fun isConnected(): Boolean = isConnected
-    fun getConnectedDeviceAddress(): String? = peripheral?.address
+    fun getConnectedDeviceAddress(): String? = gatt?.device?.address
 
     // ─── Alarm ───
     private fun startAlarm() {
@@ -254,7 +284,6 @@ class BleManager(
 
     fun cleanup() {
         disconnect()
-        centralManager.close()
         mediaPlayer?.release()
         heartbeatHandler.removeCallbacks(heartbeatTimeoutRunnable)
         LogHelper.log("Cleaned up")
