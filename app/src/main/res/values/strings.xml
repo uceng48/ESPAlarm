@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ESP32 Alarm</string>
+    
+    <string name="status_connected">🟢 Terhubung</string>
+    <string name="status_disconnected">🔴 Tidak terhubung</string>
+    <string name="rssi_label">RSSI: %d dBm</string>
+    <string name="alarm_active">🔔 ALARM AKTIF</string>
+    <string name="alarm_inactive">🔕 Alarm nonaktif</string>
+    
+    <string name="btn_scan">Scan</string>
+    <string name="btn_connect">Hubung</string>
+    <string name="btn_disconnect">Putus</string>
+    <string name="btn_alarm_on">🔔 Alarm Nyala</string>
+    <string name="btn_alarm_off">🔕 Alarm Mati</string>
+    <string name="btn_rssi">📶 RSSI</string>
+    <string name="btn_send">Kirim</string>
+    <string name="btn_settings">⚙️</string>
+    
+    <string name="hint_command">Ketik perintah</string>
+    
+    <string name="device_list_title">Daftar Perangkat</string>
+    <string name="device_name_unknown">Unknown</string>
+    <string name="device_status_connected">Terhubung</string>
+    <string name="device_status_disconnected">Tidak terhubung</string>
+    
+    <string name="log_title">Log Pesan</string>
+    <string name="log_prefix">📋 Log:\n</string>
+    
+    <string name="settings_title">Pengaturan Alarm</string>
+    <string name="settings_duration">Durasi alarm (detik):</string>
+    <string name="settings_sound">Suara:</string>
+    <string name="settings_vibrate">Getar aktif</string>
+    <string name="settings_autoreconnect">Auto-reconnect</string>
+    <string name="settings_save">Simpan</string>
+    <string name="settings_cancel">Batal</string>
+    
+    <string name="toast_permission_required">Semua izin diperlukan</string>
+    <string name="toast_scanning">Memindai...</string>
+    <string name="toast_select_device">Pilih perangkat dari daftar</string>
+    <string name="toast_device_not_available">Perangkat tidak tersedia, scan ulang</string>
+    <string name="toast_settings_saved">Pengaturan disimpan</string>
+    <string name="toast_connected">✅ Terhubung ke %s</string>
+    
+    <string-array name="alarm_sounds">
+        <item>Sirine</item>
+        <item>Beep</item>
+    </string-array>
+</resources>
