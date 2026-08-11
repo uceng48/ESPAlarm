@@ -1,6 +1,7 @@
 package com.example.esp32alarm
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -13,7 +14,6 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.welie.blessed.BluetoothPeripheral
 import com.example.esp32alarm.model.DeviceItem
 
 class MainActivity : AppCompatActivity() {
@@ -21,6 +21,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bleManager: BleManager
     private lateinit var preferences: PreferencesHelper
     private lateinit var notificationHelper: NotificationHelper
+    private val bluetoothAdapter: BluetoothAdapter by lazy {
+        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
+        bluetoothManager.adapter
+    }
 
     private lateinit var tvStatus: TextView
     private lateinit var tvRssi: TextView
@@ -40,7 +44,6 @@ class MainActivity : AppCompatActivity() {
 
     private var deviceList = mutableListOf<DeviceItem>()
     private var selectedDevice: DeviceItem? = null
-    private var peripheralMap = mutableMapOf<String, BluetoothPeripheral>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,29 +80,23 @@ class MainActivity : AppCompatActivity() {
 
         adapter = DeviceAdapter(deviceList) { device ->
             selectedDevice = device
-            val peripheral = peripheralMap[device.address]
-            if (peripheral != null) {
-                bleManager.connect(peripheral)
-            } else {
-                Toast.makeText(this, "Perangkat tidak tersedia, scan ulang", Toast.LENGTH_SHORT).show()
-            }
+            val bluetoothDevice = bluetoothAdapter.getRemoteDevice(device.address)
+            bleManager.connect(bluetoothDevice)
         }
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
 
         btnScan.setOnClickListener {
             deviceList.clear()
-            peripheralMap.clear()
             bleManager.startScan()
             Toast.makeText(this, "Memindai...", Toast.LENGTH_SHORT).show()
         }
 
         btnConnect.setOnClickListener {
             selectedDevice?.let {
-                val peripheral = peripheralMap[it.address]
-                if (peripheral != null) bleManager.connect(peripheral)
-                else Toast.makeText(this, "Pilih perangkat dari daftar", Toast.LENGTH_SHORT).show()
-            }
+                val bluetoothDevice = bluetoothAdapter.getRemoteDevice(it.address)
+                bleManager.connect(bluetoothDevice)
+            } ?: Toast.makeText(this, "Pilih perangkat dari daftar", Toast.LENGTH_SHORT).show()
         }
 
         btnDisconnect.setOnClickListener {
@@ -182,15 +179,13 @@ class MainActivity : AppCompatActivity() {
     private fun initBleManager() {
         bleManager = BleManager(this, preferences, notificationHelper)
 
-        bleManager.onDeviceDiscovered = { peripheral, rssi ->
+        bleManager.onDeviceDiscovered = { device, rssi ->
             runOnUiThread {
-                val name = peripheral.name ?: "Unknown"
-                val address = peripheral.address
+                val name = device.name ?: "Unknown"
+                val address = device.address
                 val existing = deviceList.find { it.address == address }
                 if (existing == null) {
-                    val device = DeviceItem(name, address, rssi, false, false)
-                    deviceList.add(device)
-                    peripheralMap[address] = peripheral
+                    deviceList.add(DeviceItem(name, address, rssi, false, false))
                     adapter.updateList(deviceList)
                 } else {
                     existing.rssi = rssi
