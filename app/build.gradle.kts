@@ -36,8 +36,7 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     
-    implementation("com.github.weliem:blessed-android:2.4.0")
-    implementation("com.jakewharton.timber:timber:5.0.1")
+    // Hanya gunakan yang diperlukan
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.google.code.gson:gson:2.10.1")
 }
