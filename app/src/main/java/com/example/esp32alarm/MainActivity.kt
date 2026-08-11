@@ -1,293 +1,151 @@
 package com.example.esp32alarm
 
 import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.content.Intent
+import android.bluetooth.le.ScanResult
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.widget.*
-import androidx.appcompat.app.AlertDialog
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.example.esp32alarm.model.DeviceItem
+import com.example.esp32alarm.databinding.ActivityMainBinding
+import com.welie.blessed.BluetoothPeripheral
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var binding: ActivityMainBinding
     private lateinit var bleManager: BleManager
-    private lateinit var preferences: PreferencesHelper
-    private lateinit var notificationHelper: NotificationHelper
-    private val bluetoothAdapter: BluetoothAdapter by lazy {
-        val bluetoothManager = getSystemService(BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
-        bluetoothManager.adapter
+    private var selectedPeripheral: BluetoothPeripheral? = null
+
+    companion object {
+        private const val PERMISSION_REQUEST_CODE = 101
     }
-
-    private lateinit var tvStatus: TextView
-    private lateinit var tvRssi: TextView
-    private lateinit var tvAlarmState: TextView
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: DeviceAdapter
-    private lateinit var btnScan: Button
-    private lateinit var btnConnect: Button
-    private lateinit var btnDisconnect: Button
-    private lateinit var btnAlarmOn: Button
-    private lateinit var btnAlarmOff: Button
-    private lateinit var btnReadRssi: Button
-    private lateinit var etCommand: EditText
-    private lateinit var btnSend: Button
-    private lateinit var btnSettings: Button
-    private lateinit var tvLog: TextView
-
-    private var deviceList = mutableListOf<DeviceItem>()
-    private var selectedDevice: DeviceItem? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-        preferences = PreferencesHelper(this)
-        notificationHelper = NotificationHelper(this)
-        LogHelper.init(this)
-        LogHelper.log("App started")
+        // Inisialisasi BleManager dengan 1 parameter (context)
+        bleManager = BleManager(this)
 
-        initViews()
-        requestPermissions()
-        initBleManager()
-        loadDeviceList()
-
-        startService(Intent(this, BleAlarmService::class.java))
+        setupBleCallbacks()
+        setupUIListeners()
+        checkPermissions()
     }
 
-    private fun initViews() {
-        tvStatus = findViewById(R.id.tvStatus)
-        tvRssi = findViewById(R.id.tvRssi)
-        tvAlarmState = findViewById(R.id.tvAlarmState)
-        recyclerView = findViewById(R.id.recyclerView)
-        btnScan = findViewById(R.id.btnScan)
-        btnConnect = findViewById(R.id.btnConnect)
-        btnDisconnect = findViewById(R.id.btnDisconnect)
-        btnAlarmOn = findViewById(R.id.btnAlarmOn)
-        btnAlarmOff = findViewById(R.id.btnAlarmOff)
-        btnReadRssi = findViewById(R.id.btnReadRssi)
-        etCommand = findViewById(R.id.etCommand)
-        btnSend = findViewById(R.id.btnSend)
-        btnSettings = findViewById(R.id.btnSettings)
-        tvLog = findViewById(R.id.tvLog)
-
-        adapter = DeviceAdapter(deviceList) { device ->
-            selectedDevice = device
-            val bluetoothDevice = bluetoothAdapter.getRemoteDevice(device.address)
-            bleManager.connect(bluetoothDevice)
+    private fun setupBleCallbacks() {
+        bleManager.onDeviceDiscovered = { peripheral: BluetoothPeripheral, scanResult: ScanResult ->
+            runOnUiThread {
+                // Contoh: Menyimpan perangkat pertama atau mencatat log
+                if (selectedPeripheral == null) {
+                    selectedPeripheral = peripheral
+                    binding.tvStatus?.text = "Ditemukan: ${peripheral.name ?: peripheral.address}"
+                }
+            }
         }
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        recyclerView.adapter = adapter
 
-        btnScan.setOnClickListener {
-            deviceList.clear()
+        bleManager.onConnectionStateChanged = { peripheral: BluetoothPeripheral, isConnected: Boolean ->
+            runOnUiThread {
+                if (isConnected) {
+                    binding.tvStatus?.text = "Terhubung ke: ${peripheral.name ?: peripheral.address}"
+                    binding.btnConnect?.text = "Disconnect"
+                } else {
+                    binding.tvStatus?.text = "Terputus"
+                    binding.btnConnect?.text = "Connect"
+                }
+            }
+        }
+
+        bleManager.onMessageReceived = { message: String ->
+            runOnUiThread {
+                binding.tvMessage?.text = "Pesan: $message"
+            }
+        }
+
+        bleManager.onRssiUpdate = { rssi: Int ->
+            runOnUiThread {
+                binding.tvRssi?.text = "RSSI: $rssi dBm"
+            }
+        }
+
+        bleManager.onAlarmStateChanged = { isAlarmOn: Boolean ->
+            runOnUiThread {
+                if (isAlarmOn) {
+                    binding.tvAlarmStatus?.text = "ALARM AKTIF!"
+                } else {
+                    binding.tvAlarmStatus?.text = "ALARM MATI"
+                }
+            }
+        }
+    }
+
+    private fun setupUIListeners() {
+        binding.btnScan?.setOnClickListener {
+            binding.tvStatus?.text = "Mencari perangkat..."
             bleManager.startScan()
-            Toast.makeText(this, "Memindai...", Toast.LENGTH_SHORT).show()
         }
 
-        btnConnect.setOnClickListener {
-            selectedDevice?.let {
-                val bluetoothDevice = bluetoothAdapter.getRemoteDevice(it.address)
-                bleManager.connect(bluetoothDevice)
-            } ?: Toast.makeText(this, "Pilih perangkat dari daftar", Toast.LENGTH_SHORT).show()
+        binding.btnStopScan?.setOnClickListener {
+            bleManager.stopScan()
+            binding.tvStatus?.text = "Scan dihentikan"
         }
 
-        btnDisconnect.setOnClickListener {
-            bleManager.disconnect()
-            updateUI(false)
+        binding.btnConnect?.setOnClickListener {
+            selectedPeripheral?.let { peripheral ->
+                if (bleManager.connectedPeripheral == null) {
+                    bleManager.connect(peripheral)
+                } else {
+                    bleManager.disconnect()
+                }
+            } ?: run {
+                Toast.makeText(this, "Pilih/cari perangkat terlebih dahulu", Toast.LENGTH_SHORT).show()
+            }
         }
 
-        btnAlarmOn.setOnClickListener {
-            bleManager.sendMessage("BUZZER_ON")
-        }
-
-        btnAlarmOff.setOnClickListener {
-            bleManager.sendMessage("BUZZER_OFF")
+        binding.btnStopAlarm?.setOnClickListener {
             bleManager.stopAlarm()
         }
 
-        btnReadRssi.setOnClickListener {
+        binding.btnReadRssi?.setOnClickListener {
             bleManager.readRssi()
         }
 
-        btnSend.setOnClickListener {
-            val cmd = etCommand.text.toString()
-            if (cmd.isNotEmpty()) {
-                bleManager.sendMessage(cmd)
-                etCommand.text.clear()
+        binding.btnSendCustom?.setOnClickListener {
+            val message = binding.etMessage?.text.toString()
+            if (message.isNotEmpty()) {
+                bleManager.sendMessage(message)
             }
-        }
-
-        btnSettings.setOnClickListener {
-            showSettingsDialog()
         }
     }
 
-    private fun requestPermissions() {
+    private fun checkPermissions() {
         val permissions = mutableListOf<String>()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             permissions.add(Manifest.permission.BLUETOOTH_SCAN)
             permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
-        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
 
-        val notGranted = permissions.filter {
+        val missingPermissions = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (notGranted.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, notGranted.toTypedArray(), 100)
-        } else {
-            requestIgnoreBatteryOptimization()
+
+        if (missingPermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                this,
+                missingPermissions.toTypedArray(),
+                PERMISSION_REQUEST_CODE
+            )
         }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 100) {
-            if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
-                Toast.makeText(this, "Semua izin diperlukan", Toast.LENGTH_SHORT).show()
-                finish()
-            } else {
-                requestIgnoreBatteryOptimization()
-            }
-        }
-    }
-
-    private fun requestIgnoreBatteryOptimization() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-            startActivity(intent)
-            Toast.makeText(this, "Mohon nonaktifkan optimasi baterai untuk aplikasi ini", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun initBleManager() {
-        bleManager = BleManager(this, preferences, notificationHelper)
-
-        bleManager.onDeviceDiscovered = { device, rssi ->
-            runOnUiThread {
-                val name = device.name ?: "Unknown"
-                val address = device.address
-                val existing = deviceList.find { it.address == address }
-                if (existing == null) {
-                    deviceList.add(DeviceItem(name, address, rssi, false, false))
-                    adapter.updateList(deviceList)
-                } else {
-                    existing.rssi = rssi
-                    adapter.updateList(deviceList)
-                }
-            }
-        }
-
-        bleManager.onConnectionStateChanged = { connected, address ->
-            runOnUiThread {
-                updateUI(connected)
-                if (connected && address != null) {
-                    deviceList.forEach {
-                        it.isConnected = it.address == address
-                    }
-                    adapter.updateList(deviceList)
-                    preferences.setLastMac(address)
-                    Toast.makeText(this, "✅ Terhubung ke $address", Toast.LENGTH_SHORT).show()
-                    bleManager.stopScan()
-                } else if (!connected && address != null) {
-                    deviceList.forEach {
-                        if (it.address == address) it.isConnected = false
-                    }
-                    adapter.updateList(deviceList)
-                }
-            }
-        }
-
-        bleManager.onMessageReceived = { message ->
-            runOnUiThread {
-                tvLog.append("📨 $message\n")
-            }
-        }
-
-        bleManager.onRssiUpdate = { rssi ->
-            runOnUiThread {
-                tvRssi.text = "RSSI: $rssi dBm"
-            }
-        }
-
-        bleManager.onAlarmStateChanged = { active ->
-            runOnUiThread {
-                tvAlarmState.text = if (active) "🔔 ALARM AKTIF" else "🔕 Alarm nonaktif"
-                tvAlarmState.setTextColor(if (active) 0xFFFF0000.toInt() else 0xFF000000.toInt())
-            }
-        }
-
-        val lastMac = preferences.getLastMac()
-        if (lastMac != null && preferences.getAutoReconnect()) {
-            bleManager.startScan()
-        }
-    }
-
-    private fun updateUI(connected: Boolean) {
-        tvStatus.text = if (connected) "🟢 Terhubung" else "🔴 Tidak terhubung"
-        btnConnect.isEnabled = !connected
-        btnDisconnect.isEnabled = connected
-        btnAlarmOn.isEnabled = connected
-        btnAlarmOff.isEnabled = connected
-        btnSend.isEnabled = connected
-        etCommand.isEnabled = connected
-        btnReadRssi.isEnabled = connected
-    }
-
-    private fun loadDeviceList() {
-        val saved = preferences.getDeviceList()
-        deviceList.clear()
-        deviceList.addAll(saved)
-        adapter.updateList(deviceList)
-    }
-
-    private fun showSettingsDialog() {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_settings, null)
-        val etDuration = dialogView.findViewById<EditText>(R.id.etAlarmDuration)
-        val spSound = dialogView.findViewById<Spinner>(R.id.spAlarmSound)
-        val cbVibrate = dialogView.findViewById<CheckBox>(R.id.cbVibrate)
-        val cbAutoReconnect = dialogView.findViewById<CheckBox>(R.id.cbAutoReconnect)
-
-        etDuration.setText(preferences.getAlarmDuration().toString())
-        val soundOptions = arrayOf("siren", "beep")
-        spSound.setSelection(if (preferences.getAlarmSound() == "siren") 0 else 1)
-        cbVibrate.isChecked = preferences.getAlarmVibrate()
-        cbAutoReconnect.isChecked = preferences.getAutoReconnect()
-
-        AlertDialog.Builder(this)
-            .setTitle("Pengaturan Alarm")
-            .setView(dialogView)
-            .setPositiveButton("Simpan") { _, _ ->
-                val duration = etDuration.text.toString().toIntOrNull() ?: 10
-                preferences.setAlarmDuration(duration)
-                preferences.setAlarmSound(soundOptions[spSound.selectedItemPosition])
-                preferences.setAlarmVibrate(cbVibrate.isChecked)
-                preferences.setAutoReconnect(cbAutoReconnect.isChecked)
-                Toast.makeText(this, "Pengaturan disimpan", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Batal", null)
-            .show()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         bleManager.cleanup()
-        LogHelper.log("App destroyed")
     }
 }
