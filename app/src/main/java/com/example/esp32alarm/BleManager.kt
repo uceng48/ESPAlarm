@@ -1,13 +1,16 @@
 package com.example.esp32alarm
 
-import android.bluetooth.le.ScanFilter          // <-- IMPORT TAMBAHAN
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.ToneGenerator
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
-import android.os.ParcelUuid                     // <-- IMPORT TAMBAHAN
+import android.os.ParcelUuid
 import android.os.VibrationEffect
 import android.os.Vibrator
 import com.welie.blessed.*
@@ -25,13 +28,13 @@ class BleManager(
         private const val HEARTBEAT_TIMEOUT = 10000L
     }
 
-    private var centralManager: BluetoothCentralManager
+    private lateinit var centralManager: BluetoothCentralManager
     private var peripheral: BluetoothPeripheral? = null
     private var isConnected = false
     private var alarmActive = false
     private var mediaPlayer: MediaPlayer? = null
-    private var vibrator: Vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-    private var heartbeatHandler = Handler(Looper.getMainLooper())
+    private val vibrator: Vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+    private val heartbeatHandler = Handler(Looper.getMainLooper())
     private var reconnectAttempts = 0
     private val maxReconnectAttempts = 5
 
@@ -41,11 +44,7 @@ class BleManager(
     var onRssiUpdate: ((Int) -> Unit)? = null
     var onAlarmStateChanged: ((Boolean) -> Unit)? = null
 
-    init {
-        centralManager = BluetoothCentralManager(context, centralManagerCallback, HandlerThread("BLE"))
-        LogHelper.log("BleManager initialized")
-    }
-
+    // ─── Callback ───
     private val centralManagerCallback = object : BluetoothCentralManagerCallback() {
         override fun onDiscoveredPeripheral(peripheral: BluetoothPeripheral, scanResult: ScanResult) {
             val name = peripheral.name
@@ -93,7 +92,12 @@ class BleManager(
             }
         }
 
-        override fun onCharacteristicUpdate(peripheral: BluetoothPeripheral, value: ByteArray, characteristic: BluetoothCharacteristic, status: GattStatus) {
+        override fun onCharacteristicUpdate(
+            peripheral: BluetoothPeripheral,
+            value: ByteArray,
+            characteristic: BluetoothCharacteristic,
+            status: GattStatus
+        ) {
             val message = String(value)
             LogHelper.log("Received: $message")
             when {
@@ -114,6 +118,13 @@ class BleManager(
         }
     }
 
+    init {
+        val handlerThread = HandlerThread("BLE")
+        handlerThread.start()
+        centralManager = BluetoothCentralManager(context, centralManagerCallback, handlerThread)
+        LogHelper.log("BleManager initialized")
+    }
+
     private val heartbeatTimeoutRunnable = Runnable {
         LogHelper.log("Heartbeat timeout, disconnecting")
         disconnect()
@@ -131,14 +142,12 @@ class BleManager(
         }
     }
 
-    // ═══════════════════════════════════════════════════
-    // ⭐ PERBAIKIAN UTAMA: Scan dengan FILTER
-    // ═══════════════════════════════════════════════════
+    // ─── Public methods ───
     fun startScan() {
         val scanFilter = ScanFilter.Builder()
             .setServiceUuid(ParcelUuid(SERVICE_UUID))
             .build()
-        centralManager.startScan(listOf(scanFilter))
+        centralManager.startScan(listOf(scanFilter), null)
         LogHelper.log("Scan started with filter")
     }
 
@@ -163,7 +172,11 @@ class BleManager(
             val service = peripheral?.getService(SERVICE_UUID)
             val characteristic = service?.getCharacteristic(CHARACTERISTIC_UUID_RX)
             characteristic?.let {
-                peripheral?.writeCharacteristic(it, message.toByteArray(), BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+                peripheral?.writeCharacteristic(
+                    it,
+                    message.toByteArray(),
+                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                )
                 LogHelper.log("Sent: $message")
             }
         }
@@ -176,6 +189,7 @@ class BleManager(
     fun isConnected(): Boolean = isConnected
     fun getConnectedDeviceAddress(): String? = peripheral?.address
 
+    // ─── Alarm ───
     private fun startAlarm() {
         if (alarmActive) return
         alarmActive = true
