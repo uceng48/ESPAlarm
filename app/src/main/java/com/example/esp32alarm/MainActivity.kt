@@ -1,15 +1,18 @@
 package com.example.esp32alarm
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.guolindev.permissionx.PermissionX
 import com.welie.blessed.BluetoothPeripheral
 import com.example.esp32alarm.model.DeviceItem
 
@@ -53,9 +56,6 @@ class MainActivity : AppCompatActivity() {
         initBleManager()
         loadDeviceList()
 
-        // 
-        //  MULAI FOREGROUND SERVICE (AGAR TETAP JALAN SAAT SLEEP)
-        // 
         startService(Intent(this, BleAlarmService::class.java))
     }
 
@@ -133,32 +133,44 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 
-    //  PERMINTAAN IZIN (LENGKAP)
-    // 
     private fun requestPermissions() {
-        PermissionX.init(this)
-            .permissions(
-                android.Manifest.permission.BLUETOOTH_SCAN,
-                android.Manifest.permission.BLUETOOTH_CONNECT,
-                android.Manifest.permission.ACCESS_FINE_LOCATION,
-                android.Manifest.permission.POST_NOTIFICATIONS,
-                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-            )
-            .request { allGranted, _, _ ->
-                if (!allGranted) {
-                    Toast.makeText(this, "Semua izin diperlukan", Toast.LENGTH_SHORT).show()
-                    finish()
-                } else {
-                    // Setelah izin diberikan, minta nonaktifkan optimasi baterai
-                    requestIgnoreBatteryOptimization()
-                }
-            }
+        val permissions = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+
+        val notGranted = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (notGranted.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, notGranted.toTypedArray(), 100)
+        } else {
+            requestIgnoreBatteryOptimization()
+        }
     }
 
-    // 
-    //  MINTAP NONAKTIFKAN OPTIMASI BATERAI (AGAR TIDAK DIKILL)
-    // 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 100) {
+            if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+                Toast.makeText(this, "Semua izin diperlukan", Toast.LENGTH_SHORT).show()
+                finish()
+            } else {
+                requestIgnoreBatteryOptimization()
+            }
+        }
+    }
+
     private fun requestIgnoreBatteryOptimization() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
@@ -196,7 +208,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     adapter.updateList(deviceList)
                     preferences.setLastMac(address)
-                    Toast.makeText(this, " Terhubung ke $address", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "✅ Terhubung ke $address", Toast.LENGTH_SHORT).show()
                     bleManager.stopScan()
                 } else if (!connected && address != null) {
                     deviceList.forEach {
@@ -209,7 +221,7 @@ class MainActivity : AppCompatActivity() {
 
         bleManager.onMessageReceived = { message ->
             runOnUiThread {
-                tvLog.append(" $message\n")
+                tvLog.append("📨 $message\n")
             }
         }
 
@@ -221,7 +233,7 @@ class MainActivity : AppCompatActivity() {
 
         bleManager.onAlarmStateChanged = { active ->
             runOnUiThread {
-                tvAlarmState.text = if (active) " ALARM AKTIF" else " Alarm nonaktif"
+                tvAlarmState.text = if (active) "🔔 ALARM AKTIF" else "🔕 Alarm nonaktif"
                 tvAlarmState.setTextColor(if (active) 0xFFFF0000.toInt() else 0xFF000000.toInt())
             }
         }
@@ -233,7 +245,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUI(connected: Boolean) {
-        tvStatus.text = if (connected) " Terhubung" else " Tidak terhubung"
+        tvStatus.text = if (connected) "🟢 Terhubung" else "🔴 Tidak terhubung"
         btnConnect.isEnabled = !connected
         btnDisconnect.isEnabled = connected
         btnAlarmOn.isEnabled = connected
