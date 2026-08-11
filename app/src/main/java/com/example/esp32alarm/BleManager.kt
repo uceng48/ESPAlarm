@@ -10,27 +10,24 @@ import com.welie.blessed.BluetoothCentralManagerCallback
 import com.welie.blessed.BluetoothPeripheral
 import com.welie.blessed.BluetoothPeripheralCallback
 import com.welie.blessed.GattStatus
+import com.welie.blessed.HciStatus
 import com.welie.blessed.WriteType
 import java.util.UUID
 
 class BleManager(private val context: Context) {
 
-    // UUID Service & Characteristic ESP32 (Sesuaikan jika Anda menggunakan UUID custom di ESP32)
     val SERVICE_UUID: UUID = UUID.fromString("0000180D-0000-1000-8000-00805F9B34FB")
     val CHARACTERISTIC_UUID: UUID = UUID.fromString("00002A37-0000-1000-8000-00805F9B34FB")
 
-    // Peripheral yang sedang terhubung
     var connectedPeripheral: BluetoothPeripheral? = null
         private set
 
-    // Callback Listener yang dipasangkan oleh MainActivity
     var onDeviceDiscovered: ((peripheral: BluetoothPeripheral, scanResult: ScanResult) -> Unit)? = null
     var onConnectionStateChanged: ((peripheral: BluetoothPeripheral, isConnected: Boolean) -> Unit)? = null
     var onMessageReceived: ((message: String) -> Unit)? = null
     var onRssiUpdate: ((rssi: Int) -> Unit)? = null
     var onAlarmStateChanged: ((isAlarmOn: Boolean) -> Unit)? = null
 
-    // Manager Callback dari Blessed Library
     private val centralCallback = object : BluetoothCentralManagerCallback() {
         override fun onDiscoveredPeripheral(peripheral: BluetoothPeripheral, scanResult: ScanResult) {
             onDeviceDiscovered?.invoke(peripheral, scanResult)
@@ -41,7 +38,8 @@ class BleManager(private val context: Context) {
             onConnectionStateChanged?.invoke(peripheral, true)
         }
 
-        override fun onDisconnectedPeripheral(peripheral: BluetoothPeripheral, status: GattStatus) {
+        // HciStatus digunakan di sini
+        override fun onDisconnectedPeripheral(peripheral: BluetoothPeripheral, status: HciStatus) {
             if (connectedPeripheral == peripheral) {
                 connectedPeripheral = null
             }
@@ -49,7 +47,6 @@ class BleManager(private val context: Context) {
         }
     }
 
-    // Peripheral Callback
     private val peripheralCallback = object : BluetoothPeripheralCallback() {
         override fun onServicesDiscovered(peripheral: BluetoothPeripheral) {
             val characteristic = peripheral.getCharacteristic(SERVICE_UUID, CHARACTERISTIC_UUID)
@@ -92,8 +89,6 @@ class BleManager(private val context: Context) {
         centralCallback,
         Handler(Looper.getMainLooper())
     )
-
-    // Method publik yang dipanggil MainActivity
 
     fun startScan() {
         central.scanForPeripherals()
